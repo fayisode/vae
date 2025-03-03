@@ -1,9 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from typing import Tuple
-import seeding as _se
 
 
 class Encoder(nn.Module):
@@ -21,6 +19,7 @@ class Encoder(nn.Module):
         self.nc = nc
         self.ndf = ndf
         self.latent_dim = latent_dim
+
         self.encoder = nn.Sequential(
             nn.Conv2d(self.nc, self.ndf, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
@@ -36,6 +35,7 @@ class Encoder(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             nn.AdaptiveAvgPool2d(1),
         )
+
         self.fc1 = nn.Linear(1024, 512)
         self.fc21 = nn.Linear(512, latent_dim)
         self.fc22 = nn.Linear(512, latent_dim)
@@ -69,11 +69,13 @@ class Decoder(nn.Module):
         self.ngf = ngf
         self.nc = nc
         self.latent_dim = latent_dim
+
         self.decoder_input = nn.Sequential(
             nn.Linear(latent_dim, 512),
             nn.ReLU(True),
             nn.Linear(512, 1024),
         )
+
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(1024, self.ngf * 8, 4, 1, 0, bias=False),
             nn.BatchNorm2d(self.ngf * 8),
@@ -87,9 +89,6 @@ class Decoder(nn.Module):
             nn.BatchNorm2d(self.ngf * 2),
             nn.ReLU(True),
             nn.ConvTranspose2d(self.ngf * 2, self.nc, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(self.ngf),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(self.ngf, self.nc, 4, 2, 1, bias=False),
             nn.Sigmoid(),
         )
 
@@ -139,15 +138,14 @@ class MyModel(nn.Module):
             / self.nClusters,
             requires_grad=True,
         )
+        self.prior_frozen = False
+
         self.mu_c = nn.Parameter(
-            torch.FloatTensor(self.nClusters, self.latent_dim).fill_(0),
-            requires_grad=True,
+            torch.FloatTensor(self.nClusters, self.latent_dim).normal_(0, 0.01)
         )
         self.log_var_c = nn.Parameter(
-            torch.FloatTensor(self.nClusters, self.latent_dim).fill_(0),
-            requires_grad=True,
-        )
-        self.prior_frozen = True
+            torch.FloatTensor(self.nClusters, self.latent_dim).fill_(-2.0)
+        )  # log(sigma^2) ~ 0.1
 
     def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         """Reparameterization trick for VAEs.
@@ -159,7 +157,6 @@ class MyModel(nn.Module):
         Returns:
             torch.Tensor: Sampled latent vector.
         """
-
         std = logvar.mul(0.5).exp_()
         eps = torch.randn_like(std)
         return eps.mul(std).add_(mu)
@@ -276,15 +273,12 @@ class MyModel(nn.Module):
         Returns:
             torch.Tensor: Reconstruction loss.
         """
-        # return torch.nn.functional.binary_cross_entropy(
-        #     recon_x.view(-1, 784), x.view(-1, 784), reduction="sum"
-        # )
         recon_x = torch.clamp(recon_x, 0, 1)
         if x.max() > 1 or x.min() < 0:
-            print("Normalizing target values...")
             x = x / 255.0  # Normalize if needed
-            x = torch.clamp(x, 0, 1)
-        flat_size = recon_x[0].numel()  # Elements in one sampl
+        x = torch.clamp(x, 0, 1)
+        flat_size = recon_x[0].numel()  # Elements in one sample
+        self.flat_size = flat_size
         return torch.nn.functional.mse_loss(
             recon_x.view(-1, flat_size),  # Flattened reconstruction
             x.view(-1, flat_size),  # Flattened target
@@ -293,7 +287,7 @@ class MyModel(nn.Module):
         )
 
     def KLD(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
-        """KL divergence loss.  (Mixture of Gaussians prior)
+        """KL divergence loss (Mixture of Gaussians prior).
 
         Args:
             mu: Mean of the latent distribution.
@@ -303,12 +297,9 @@ class MyModel(nn.Module):
             torch.Tensor: KL divergence loss.
         """
         det = 1e-10
-        # det = 1e-10
-
         pi = self.pi_
         log_var_c = self.log_var_c
         mu_c = self.mu_c
-
         z = torch.randn_like(mu) * torch.exp(log_var / 2) + mu
         z = torch.nan_to_num(z, nan=0)
 
@@ -319,6 +310,7 @@ class MyModel(nn.Module):
             + det
         )
         yita_c = yita_c / (yita_c.sum(1).view(-1, 1))
+
         loss = 0.5 * torch.mean(
             torch.sum(
                 yita_c
@@ -335,7 +327,7 @@ class MyModel(nn.Module):
         loss -= torch.mean(
             torch.sum(yita_c * torch.log(pi.unsqueeze(0) / (yita_c)), 1)
         ) + 0.5 * torch.mean(torch.sum(1 + log_var, 1))
-        return loss / self.latent_dim
+        return loss
 
     def loss_function(
         self,
@@ -344,7 +336,7 @@ class MyModel(nn.Module):
         mu: torch.Tensor,
         log_var: torch.Tensor,
         BETA_COEF: float,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Combined loss function.
 
         Args:
@@ -355,13 +347,12 @@ class MyModel(nn.Module):
             BETA_COEF: Weight for the KL divergence loss.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: (reconstruction_loss, kld_loss, mse_loss, total_loss)
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (reconstruction_loss, kld_loss, total_loss)
         """
-        mse_loss = F.mse_loss(recon_x, x, reduction="mean")
         reconst_loss = self.RE(recon_x, x)
         kld_loss = self.KLD(mu, log_var)
         loss = reconst_loss + kld_loss * BETA_COEF
-        return reconst_loss, kld_loss, mse_loss, loss
+        return reconst_loss, kld_loss, loss
 
     def freeze_prior(self):
         """Freeze prior parameters for initial training stability."""

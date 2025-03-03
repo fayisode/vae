@@ -54,16 +54,17 @@ def gamma_training(
         optimizer.zero_grad()
 
         recon_batch, mu, logvar = model(data)
-        loss = model.RE(recon_batch, data) + gamma * model.KLD(mu, logvar)
+        n_iter = len(dataloader)
+        L = generate_gamma_schedule(n_iter, gamma)  # Ensure g
+        beta = L[batch_idx]
+        re_loss, kld_loss, loss = model.loss_function(
+            recon_batch, data, mu, logvar, beta
+        )
+
         loss.backward()
 
-        n_iter = len(dataloader)
-        L = generate_gamma_schedule(
-            n_iter, gamma
-        )  # Ensure generate_gamma_schedule is defined
-
         losses = generate.compute_losses(
-            model, recon_batch, data, mu, logvar, L[batch_idx]
+            re_loss, kld_loss, loss
         )  # Ensure compute_losses is defined
         optimizer.step()
 

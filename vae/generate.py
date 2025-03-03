@@ -122,15 +122,10 @@ def _plot_image(image_tensor: torch.Tensor, ax: plt.Axes) -> None:
 
 
 def compute_losses(
-    model, recon_batch, data, mu, logvar, beta_coef: float = 0.0005
+    kld_loss, reconst_loss, loss_function
 ) -> Dict[str, torch.Tensor]:  # Type hint beta_coef and return
-    """Computes the losses."""
-    reconst_loss, kld_loss, mse_loss, loss_function = model.loss_function(
-        recon_batch, data, mu, logvar, beta_coef
-    )
     return {
         "kld": kld_loss,
-        "mse": mse_loss,
         "reconst": reconst_loss,
         "loss_function": loss_function,
     }

@@ -25,24 +25,6 @@ class VaeDatasets(NamedTuple):
     training: Dataset
 
 
-# def get_house_data() -> VaeDatasets:
-#     get_data_if_not_exist()
-#     batch_size = c.get_batch_size()
-#     train_file_path = data_path + c.get_train_info()[1]
-#     test_file_path = data_path + c.get_test_info()[1]
-#     ds = load_mat_data(train_file_path)
-#     test_load = load_mat_data(test_file_path)
-#     train_len = int(len(ds) * 0.7)
-#     val_len = len(ds) - train_len
-#     lengths = [train_len, val_len]
-#     trnSet, valSet = random_split(ds, lengths)
-#     # Data loaders
-#     train_loader = DataLoader(trnSet, batch_size=batch_size, shuffle=True)
-#     val_loader = DataLoader(valSet, batch_size=batch_size, shuffle=False)
-#     test_loader = DataLoader(test_load, batch_size=batch_size, shuffle=False)
-#     return VaeDatasets(train_loader, val_loader, test_loader, trnSet)
-
-
 def load_mat_data(file_path):
     print(f"Loading data from {file_path}")
     data = scipy.io.loadmat(file_path)
@@ -89,8 +71,12 @@ def get_house_data() -> VaeDatasets:
     lengths = [train_len, val_len]
     trnSet, valSet = random_split(train_ds, lengths)
 
-    train_loader = DataLoader(trnSet, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(valSet, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(
+        trnSet, batch_size=batch_size, shuffle=True, drop_last=True
+    )
+    val_loader = DataLoader(
+        valSet, batch_size=batch_size, shuffle=False, drop_last=True
+    )
     test_loader = DataLoader(
         test_ds, batch_size=batch_size, shuffle=False
     )  # Use test_ds
@@ -122,27 +108,6 @@ def ensure_directory_exists(file_path):
         os.makedirs(directory, exist_ok=True)
 
 
-# def load_mat_data(file_path):
-#     print(f"Loading data from {file_path}")
-#     data = scipy.io.loadmat(file_path)
-#     images = data["X"]  # Shape (32, 32, 3, N)
-#     labels = data["y"]  # Shape (N, 1)
-#     images = (
-#         np.transpose(images, (3, 2, 0, 1)) / 255.0
-#     )  # Normalize pixel values to [0, 1]
-#     labels = labels.flatten()
-#     labels[labels == 10] = 0
-#
-#     # Print shapes
-#     print("Input image shape:", images.shape)
-#     print("Input label shape:", labels.shape)
-#
-#     return TensorDataset(
-#         T.tensor(images, dtype=T.float32),
-#         T.tensor(labels, dtype=T.int64),
-#     )
-
-
 def get_anomaly_data() -> VaeDatasets:
     batch_size = c.get_batch_size()
     imageList, labelList = generate_image_info()
@@ -154,11 +119,13 @@ def get_anomaly_data() -> VaeDatasets:
     trnSet, valSet, tstSet = random_split(ds, length)
     # Data loaders
     train_loader = DataLoader(
-        trnSet, batch_size=batch_size, shuffle=True, num_workers=0
+        trnSet, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True
     )
-    val_loader = DataLoader(valSet, batch_size=batch_size, shuffle=False, num_workers=0)
+    val_loader = DataLoader(
+        valSet, batch_size=batch_size, shuffle=False, num_workers=0, drop_last=True
+    )
     test_loader = DataLoader(
-        tstSet, batch_size=batch_size, shuffle=False, num_workers=0
+        tstSet, batch_size=batch_size, shuffle=False, num_workers=0, drop_last=True
     )
     return VaeDatasets(train_loader, val_loader, test_loader, trnSet)
 

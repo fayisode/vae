@@ -1,7 +1,15 @@
+import os
+import sys
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from typing import Tuple, Dict, List
+from sklearn.metrics import (
+    adjusted_rand_score,
+    normalized_mutual_info_score,
+    silhouette_score,
+)
+from sklearn.metrics import davies_bouldin_score, calinski_harabasz_score
 
 import clustering as _c
 import generate_data as _d
@@ -9,6 +17,12 @@ import model as _m
 import numpy as np
 import generate as _g
 import seeding as _s
+
+proj_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, proj_path)
+
+from config.config import config as c
+
 
 _s.set_seed(20)
 
@@ -37,10 +51,9 @@ def train(
 
         recon_batch, mu, logvar = model(data)
         beta = L[batch_idx]
-
-        re_loss = model.RE(recon_batch, data)
-        kld_loss = model.KLD(mu, logvar)
-        loss = re_loss + beta * kld_loss
+        re_loss, kld_loss, loss = model.loss_function(
+            recon_batch, data, mu, logvar, beta
+        )
 
         if torch.isnan(loss).any():
             print("NaN Loss detected!")
@@ -94,10 +107,8 @@ def validate(
         for i, (data, labels) in enumerate(val_loader):
             data = data.to(device)
             recon_batch, mu, logvar = model(data)
-            re_loss = model.RE(recon_batch, data)
-            kld_loss = model.KLD(mu, logvar)
             beta = L[i]
-            loss = re_loss + beta * kld_loss
+            _, _, loss = model.loss_function(recon_batch, data, mu, logvar, beta)
             total_val_loss += loss.item() * data.size(0)  # Accumulate raw loss
 
             z_mu, _ = model.encode(data)
@@ -111,6 +122,37 @@ def validate(
 
     avg_val_loss = total_val_loss / len(val_loader.dataset)  # Scale only once
 
+    # If we have ground truth labels, calculate supervised metrics
+    if len(np.unique(all_labels)) > 1:  # Ensure we have meaningful labels
+        ari = adjusted_rand_score(all_labels, all_clusters)
+        nmi = normalized_mutual_info_score(all_labels, all_clusters)
+        print(f"====> Adjusted Rand Index: {ari:.4f}")
+        print(f"====> Normalized Mutual Information: {nmi:.4f}")
+
+    # Calculate unsupervised metrics (internal clustering metrics)
+    if len(all_latents) > max(
+        model.nClusters, 2
+    ):  # Need enough samples for valid metrics
+        try:
+            silhouette = silhouette_score(all_latents, all_clusters)
+            db_score = davies_bouldin_score(all_latents, all_clusters)
+            ch_score = calinski_harabasz_score(all_latents, all_clusters)
+            print(f"====> Silhouette Score: {silhouette:.4f}")
+            print(f"====> Davies-Bouldin Score: {db_score:.4f} (lower is better)")
+            print(f"====> Calinski-Harabasz Score: {ch_score:.1f} (higher is better)")
+        except Exception as e:
+            print(f"Warning: Could not calculate some clustering metrics. Error: {e}")
+
+    # Calculate cluster distribution
+    unique_clusters, cluster_counts = np.unique(all_clusters, return_counts=True)
+    print("====> Cluster distribution:")
+    for cluster, count in zip(unique_clusters, cluster_counts):
+        print(
+            f"      Cluster {cluster}: {count} samples ({100*count/len(all_clusters):.2f}%)"
+        )
+
+    print(f"====> Validation Loss: {avg_val_loss:.4f}")
+    return avg_val_loss  # Return the float directly
     print(f"====> Validation Loss: {avg_val_loss:.4f}")
     # ... (rest of validate function - clustering metrics, etc.)
     return avg_val_loss  # Return the float directly
@@ -134,12 +176,11 @@ def test(
             data = data.to(device)
 
             recon_batch, mu, logvar = model(data)
-            losses = _g.compute_losses(
-                model, recon_batch, data, mu, logvar, L[i]
-            )  # Use gamma
-            _com_loss = model.loss_function(recon_batch, data, mu, logvar, L[i])[3]
-            test_loss += _com_loss.item() * data.size(0)  # Accumulate raw loss
-
+            reconst, kld_loss, loss = model.loss_function(
+                recon_batch, data, mu, logvar, L[i]
+            )
+            test_loss += loss.item() * data.size(0)  # Accumulate raw loss
+            losses = _g.compute_losses(reconst, kld_loss, loss)  # Use gamma
             for key, value in losses.items():
                 loss_histories[key].append(value.item())
 
@@ -278,7 +319,7 @@ GAMMA_STEP = 200
 LATENT_DIM = 20
 N_CLUSTERS = 13
 N_CHANNELS = 1
-BATCH_SIZE = 100
+BATCH_SIZE = c.get_batch_size()
 SAVE_PATH = "./s3vdc_test4_3.pth"
 PATIENCE = 10
 # EPOCHS = 5  # Set your desired number of epochs
