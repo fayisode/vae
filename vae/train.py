@@ -122,39 +122,7 @@ def validate(
 
     avg_val_loss = total_val_loss / len(val_loader.dataset)  # Scale only once
 
-    # If we have ground truth labels, calculate supervised metrics
-    if len(np.unique(all_labels)) > 1:  # Ensure we have meaningful labels
-        ari = adjusted_rand_score(all_labels, all_clusters)
-        nmi = normalized_mutual_info_score(all_labels, all_clusters)
-        print(f"====> Adjusted Rand Index: {ari:.4f}")
-        print(f"====> Normalized Mutual Information: {nmi:.4f}")
-
-    # Calculate unsupervised metrics (internal clustering metrics)
-    if len(all_latents) > max(
-        model.nClusters, 2
-    ):  # Need enough samples for valid metrics
-        try:
-            silhouette = silhouette_score(all_latents, all_clusters)
-            db_score = davies_bouldin_score(all_latents, all_clusters)
-            ch_score = calinski_harabasz_score(all_latents, all_clusters)
-            print(f"====> Silhouette Score: {silhouette:.4f}")
-            print(f"====> Davies-Bouldin Score: {db_score:.4f} (lower is better)")
-            print(f"====> Calinski-Harabasz Score: {ch_score:.1f} (higher is better)")
-        except Exception as e:
-            print(f"Warning: Could not calculate some clustering metrics. Error: {e}")
-
-    # Calculate cluster distribution
-    unique_clusters, cluster_counts = np.unique(all_clusters, return_counts=True)
-    print("====> Cluster distribution:")
-    for cluster, count in zip(unique_clusters, cluster_counts):
-        print(
-            f"      Cluster {cluster}: {count} samples ({100*count/len(all_clusters):.2f}%)"
-        )
-
     print(f"====> Validation Loss: {avg_val_loss:.4f}")
-    return avg_val_loss  # Return the float directly
-    print(f"====> Validation Loss: {avg_val_loss:.4f}")
-    # ... (rest of validate function - clustering metrics, etc.)
     return avg_val_loss  # Return the float directly
 
 
@@ -165,7 +133,6 @@ def test(
     test_loss = 0.0  # Initialize as float
     loss_histories = {
         "kld": [],
-        "mse": [],
         "reconst": [],
         "loss_function": [],
     }
@@ -241,7 +208,6 @@ def train_and_evaluate(
     test_loss_arr = []
     no_improvement_counter = 0  # Tracks epochs without improvement
     loss_history_mean = {
-        "mse": [],
         "reconst": [],
         "kld": [],
         "loss_function": [],
@@ -314,12 +280,13 @@ def train_and_evaluate(
 
 
 # Configuration (moved to the top)
-GAMMA = 1e-5
-GAMMA_STEP = 200
+config_dict = c.get_model_config()
+GAMMA = config_dict.get("gamma", 0.0)
+GAMMA_STEP = config_dict.get("gamma_step", 0.0)
 LATENT_DIM = 20
 N_CLUSTERS = 13
-N_CHANNELS = 1
 BATCH_SIZE = c.get_batch_size()
+print(c.get_model_config())
 SAVE_PATH = "./s3vdc_test4_3.pth"
 PATIENCE = 10
 # EPOCHS = 5  # Set your desired number of epochs
@@ -333,11 +300,29 @@ train_loader, val_loader, test_loader, trnSet = _d.get_anomaly_data()
 
 # Model initialization
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = _m.MyModel(
-    latent_dim=LATENT_DIM, nClusters=N_CLUSTERS, nc=N_CHANNELS, ngf=128
-).to(device)
+model = _m.MyModel(latent_dim=LATENT_DIM, nClusters=N_CLUSTERS, nc=N_CHANNELS).to(
+    device
+)
 
 # Initial gamma training
+# In your training setup
+# optimizer = torch.optim.Adam(
+#     [
+#         {
+#             "params": [
+#                 p
+#                 for n, p in model.named_parameters()
+#                 if "pi_" not in n and "mu_c" not in n and "log_var_c" not in n
+#             ]
+#         },
+#         {
+#             "params": [model.pi_, model.mu_c, model.log_var_c],
+#             "lr": 1e-4,
+#         },  # Slower learning rate for prior
+#     ],
+#     lr=1e-3,
+# )
+#
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 _c.gamma_training(model, train_loader, optimizer, GAMMA_STEP, GAMMA)
 

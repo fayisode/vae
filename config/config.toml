@@ -1,5 +1,5 @@
 [vae]
-batch_size = 12
+batch_size = 16
 gamma = 1e-10
 gamma_step = 200
 n_clusters = 13

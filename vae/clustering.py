@@ -48,14 +48,15 @@ def gamma_training(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # Get device outside the loop
 
+    n_iter = len(dataloader)
+    L = generate_gamma_schedule(n_iter, gamma)  # Ensure g
     for batch_idx, (data, _) in tqdm(enumerate(dataloader)):
         data = data.to(device)  # Use .to(device) instead of Variable and cuda()
 
         optimizer.zero_grad()
 
         recon_batch, mu, logvar = model(data)
-        n_iter = len(dataloader)
-        L = generate_gamma_schedule(n_iter, gamma)  # Ensure g
+
         beta = L[batch_idx]
         re_loss, kld_loss, loss = model.loss_function(
             recon_batch, data, mu, logvar, beta

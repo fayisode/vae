@@ -101,8 +101,8 @@ def save_reconstructed_images(
 
     fig, axes = plt.subplots(num_samples, 2, figsize=(12, 20))
 
-    axes[0, 0].set_title("Original", fontsize=14)
-    axes[0, 1].set_title("Reconstructed", fontsize=14)
+    axes[0, 0].set_title("reconstruct", fontsize=14)
+    axes[0, 1].set_title("original", fontsize=14)
 
     for i in range(num_samples):
         _plot_image(original_images[i][0], axes[i, 0])
