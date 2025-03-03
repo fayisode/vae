@@ -9,6 +9,7 @@ __pycache__/
 
 # C extensions
 *.so
+s3vdc_test4_3.pth
 image/
 data/
 # Distribution / packaging
