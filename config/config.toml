@@ -1,0 +1,20 @@
+[vae]
+batch_size = 12
+gamma = 1e-10
+gamma_step = 200
+n_clusters = 13
+type_ = "CNN"
+epochs = 15
+latent_dims = 128
+input_shape = [1, 28, 28]
+channels = [32, 64, 128, 256, 512, 1024]
+kernel_sizes = [4, 3, 3, 3, 3, 3]
+strides = [2, 2, 2, 2, 2, 1]
+activation = "LeakyRELU"
+
+
+[data]
+train_dir = "/train_32*32.mat"
+train_url = "http://ufldl.stanford.edu/housenumbers/train_32x32.mat"
+test_dir = "/test_32x32.mat"
+test_url = "http://ufldl.stanford.edu/housenumbers/test_32x32.mat"
